@@ -92,3 +92,7 @@ Key design choices:
 - **No HTTPS.** The lab has no domain or certificate. Production would need HTTPS.
 - **The first image must exist before the service.** The application pipeline must push an image before the service stack is created.
 - **One Region only.** The design survives the loss of a zone, not a whole Region.
+
+### Cost Estimate
+- My estimate for normal and busy months is here: [PASTE_YOUR_LINK](https://calculator.aws/#/estimate?id=508045ce71cf89deafa84527cb741a7adf93e044). 
+- A quiet month costs about 93 USD. Sales days add only about 1.60 USD, because scaling removes the extra tasks afterwards. The largest single line is the VPC at about 56 USD, which is mostly the three interface endpoints across two zones: this is the cost of keeping the application off the internet. A Regional NAT Gateway would have cost about 78 USD on its own, more than the whole VPC line, and would have given the application an internet path.
