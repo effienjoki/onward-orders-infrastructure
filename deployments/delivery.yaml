@@ -1,0 +1,10 @@
+template-file-path: templates/delivery.yaml
+parameters:
+  Environment: dev
+  ConnectionArn: PASTE_CONNECTION_ARN
+  AppRepository: effienjoki/onward-orders-app
+  AppBranch: main
+tags:
+  Project: onward
+  Owner: Effie Njoki
+  Environment: dev
