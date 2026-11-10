@@ -1,23 +1,35 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Onward Logistics order delivery. EventBridge starts CodePipeline when a new
-  image is pushed to ECR. CodePipeline hands it to CodeDeploy, which releases it
-  to ECS with a blue/green canary and automatic rollback.
+  Onward Logistics order delivery (child of the root stack). EventBridge starts
+  CodePipeline when a new image is pushed to ECR. CodePipeline hands it to
+  CodeDeploy, which releases it to ECS with a blue/green canary and automatic rollback.
 
 Parameters:
   Environment:
     Type: String
-    Default: dev
     AllowedValues: [dev, test, prod]
   ConnectionArn:
     Type: String
-    Description: Existing GitHub connection (bootstrap item) used to read the app repo.
   AppRepository:
     Type: String
-    Default: effienjoki/onward-orders-app
   AppBranch:
     Type: String
-    Default: main
+  RepositoryName:
+    Type: String
+  RepositoryArn:
+    Type: String
+  ClusterName:
+    Type: String
+  ServiceName:
+    Type: String
+  ProductionListenerArn:
+    Type: String
+  BlueTargetGroupName:
+    Type: String
+  GreenTargetGroupName:
+    Type: String
+  TaskExecutionRoleArn:
+    Type: String
 
 Resources:
 
@@ -83,20 +95,16 @@ Resources:
           - DEPLOYMENT_FAILURE
           - DEPLOYMENT_STOP_ON_REQUEST
       ECSServices:
-        - ClusterName:
-            Fn::ImportValue: !Sub onward-${Environment}-ecs-service-ClusterName
-          ServiceName:
-            Fn::ImportValue: !Sub onward-${Environment}-ecs-service-ServiceName
+        - ClusterName: !Ref ClusterName
+          ServiceName: !Ref ServiceName
       LoadBalancerInfo:
         TargetGroupPairInfoList:
           - TargetGroups:
-              - Name:
-                  Fn::ImportValue: !Sub onward-${Environment}-ecs-service-BlueTargetGroupName
-              - Name:
-                  Fn::ImportValue: !Sub onward-${Environment}-ecs-service-GreenTargetGroupName
+              - Name: !Ref BlueTargetGroupName
+              - Name: !Ref GreenTargetGroupName
             ProdTrafficRoute:
               ListenerArns:
-                - Fn::ImportValue: !Sub onward-${Environment}-ecs-service-ProductionListenerArn
+                - !Ref ProductionListenerArn
 
   # ---------- CodePipeline: what it may do ----------
 
@@ -121,8 +129,7 @@ Resources:
           - Sid: ReadNewImage
             Effect: Allow
             Action: ecr:DescribeImages
-            Resource:
-              Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryArn
+            Resource: !Ref RepositoryArn
           - Sid: ReadAppRepoFiles
             Effect: Allow
             Action:
@@ -149,8 +156,7 @@ Resources:
           - Sid: PassExecutionRoleToEcsOnly
             Effect: Allow
             Action: iam:PassRole
-            Resource:
-              Fn::ImportValue: !Sub onward-${Environment}-ecs-service-TaskExecutionRoleArn
+            Resource: !Ref TaskExecutionRoleArn
             Condition:
               StringEquals:
                 iam:PassedToService: ecs-tasks.amazonaws.com
@@ -190,8 +196,7 @@ Resources:
                 Provider: ECR
                 Version: '1'
               Configuration:
-                RepositoryName:
-                  Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryName
+                RepositoryName: !Ref RepositoryName
                 ImageTag: latest
               OutputArtifacts:
                 - Name: ImageArtifact
@@ -273,7 +278,7 @@ Resources:
           result:
             - SUCCESS
           repository-name:
-            - Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryName
+            - !Ref RepositoryName
           image-tag:
             - latest
       Targets:

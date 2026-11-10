@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics order system, root stack. Creates the network, service and
+  delivery stacks as nested child stacks and passes values between them.
+  Deployed by GitHub Actions: child templates are uploaded to S3 by
+  'aws cloudformation package'.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+  ConnectionArn:
+    Type: String
+    Description: Existing GitHub connection (bootstrap exception) used by CodePipeline.
+  AppRepository:
+    Type: String
+    Default: effienjoki/onward-orders-app
+  AppBranch:
+    Type: String
+    Default: main
+  MinTasks:
+    Type: Number
+    Default: 1
+  MaxTasks:
+    Type: Number
+    Default: 6
+  CpuTarget:
+    Type: Number
+    Default: 50
+
+Resources:
+
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: network.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  ServiceStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: service.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt NetworkStack.Outputs.PublicSubnetIds
+        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+        RepositoryUri:
+          Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryUri
+        MinTasks: !Ref MinTasks
+        MaxTasks: !Ref MaxTasks
+        CpuTarget: !Ref CpuTarget
+
+  DeliveryStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: delivery.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ConnectionArn: !Ref ConnectionArn
+        AppRepository: !Ref AppRepository
+        AppBranch: !Ref AppBranch
+        RepositoryName:
+          Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryName
+        RepositoryArn:
+          Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryArn
+        ClusterName: !GetAtt ServiceStack.Outputs.ClusterName
+        ServiceName: !GetAtt ServiceStack.Outputs.ServiceName
+        ProductionListenerArn: !GetAtt ServiceStack.Outputs.ProductionListenerArn
+        BlueTargetGroupName: !GetAtt ServiceStack.Outputs.BlueTargetGroupName
+        GreenTargetGroupName: !GetAtt ServiceStack.Outputs.GreenTargetGroupName
+        TaskExecutionRoleArn: !GetAtt ServiceStack.Outputs.TaskExecutionRoleArn
+
+Outputs:
+  LoadBalancerUrl:
+    Description: The single public address of the order system.
+    Value: !GetAtt ServiceStack.Outputs.LoadBalancerUrl
+  PipelineName:
+    Value: !GetAtt DeliveryStack.Outputs.PipelineName

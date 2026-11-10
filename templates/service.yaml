@@ -1,17 +1,24 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Onward Logistics order service on ECS Fargate. Internet facing ALB in public
-  subnets, tasks in private subnets, blue and green target groups for CodeDeploy
-  blue/green releases, and CPU based scaling between 2 and 6 tasks.
+  Onward Logistics order service on ECS Fargate (child of the root stack).
+  Internet facing ALB in public subnets, tasks in private subnets, blue and
+  green target groups for CodeDeploy, and CPU based scaling.
 
 Parameters:
   Environment:
     Type: String
-    Default: dev
     AllowedValues: [dev, test, prod]
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  RepositoryUri:
+    Type: String
   MinTasks:
     Type: Number
-    Default: 2
+    Default: 1
   MaxTasks:
     Type: Number
     Default: 6
@@ -28,8 +35,7 @@ Resources:
     Properties:
       GroupName: !Sub onward-${Environment}-orders-alb-sg
       GroupDescription: Public entry point. HTTP from the internet to the load balancer only.
-      VpcId:
-        Fn::ImportValue: !Sub onward-${Environment}-ecs-network-VpcId
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
         - Description: HTTP from customers and merchants
           IpProtocol: tcp
@@ -45,8 +51,7 @@ Resources:
     Properties:
       GroupName: !Sub onward-${Environment}-orders-task-sg
       GroupDescription: Order tasks. App port from the load balancer only. No admin ports.
-      VpcId:
-        Fn::ImportValue: !Sub onward-${Environment}-ecs-network-VpcId
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
         - Description: App traffic from the load balancer only
           IpProtocol: tcp
@@ -67,16 +72,13 @@ Resources:
       Scheme: internet-facing
       SecurityGroups:
         - !Ref AlbSecurityGroup
-      Subnets: !Split
-        - ','
-        - Fn::ImportValue: !Sub onward-${Environment}-ecs-network-PublicSubnetIds
+      Subnets: !Ref PublicSubnetIds
 
   BlueTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub onward-${Environment}-orders-blue
-      VpcId:
-        Fn::ImportValue: !Sub onward-${Environment}-ecs-network-VpcId
+      VpcId: !Ref VpcId
       TargetType: ip
       Protocol: HTTP
       Port: 8080
@@ -92,8 +94,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub onward-${Environment}-orders-green
-      VpcId:
-        Fn::ImportValue: !Sub onward-${Environment}-ecs-network-VpcId
+      VpcId: !Ref VpcId
       TargetType: ip
       Protocol: HTTP
       Port: 8080
@@ -158,10 +159,7 @@ Resources:
         CpuArchitecture: X86_64
       ContainerDefinitions:
         - Name: orders-app
-          Image: !Sub
-            - '${RepoUri}:latest'
-            - RepoUri:
-                Fn::ImportValue: !Sub onward-${Environment}-orders-bootstrap-RepositoryUri
+          Image: !Sub ${RepositoryUri}:latest
           Essential: true
           PortMappings:
             - ContainerPort: 8080
@@ -192,15 +190,13 @@ Resources:
           AssignPublicIp: DISABLED
           SecurityGroups:
             - !Ref TaskSecurityGroup
-          Subnets: !Split
-            - ','
-            - Fn::ImportValue: !Sub onward-${Environment}-ecs-network-PrivateSubnetIds
+          Subnets: !Ref PrivateSubnetIds
       LoadBalancers:
         - ContainerName: orders-app
           ContainerPort: 8080
           TargetGroupArn: !Ref BlueTargetGroup
 
-  # ---------- Scaling: 2 to 6 tasks, keep average CPU near the target ----------
+  # ---------- Scaling: MinTasks to MaxTasks, keep average CPU near the target ----------
 
   ScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
@@ -226,29 +222,16 @@ Resources:
 
 Outputs:
   LoadBalancerUrl:
-    Description: The single public address of the order system.
     Value: !Sub http://${LoadBalancer.DNSName}
   ClusterName:
     Value: !Ref Cluster
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-ClusterName
   ServiceName:
     Value: !GetAtt Service.Name
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-ServiceName
   ProductionListenerArn:
     Value: !Ref ProductionListener
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-ProductionListenerArn
   BlueTargetGroupName:
     Value: !GetAtt BlueTargetGroup.TargetGroupName
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-BlueTargetGroupName
   GreenTargetGroupName:
     Value: !GetAtt GreenTargetGroup.TargetGroupName
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-GreenTargetGroupName
   TaskExecutionRoleArn:
     Value: !GetAtt TaskExecutionRole.Arn
-    Export:
-      Name: !Sub onward-${Environment}-ecs-service-TaskExecutionRoleArn

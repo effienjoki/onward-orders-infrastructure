@@ -1,7 +1,0 @@
-template-file-path: templates/network.yaml
-parameters:
-  Environment: dev
-tags:
-  Project: onward
-  Owner: Effie Njoki
-  Environment: dev
