@@ -1,0 +1,66 @@
+name: Deploy infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  STACK_NAME: onward-dev-ecs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Get temporary AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check the templates are valid
+        run: |
+          for template in templates/*.yaml; do
+            aws cloudformation validate-template --template-body file://$template > /dev/null
+            echo "Valid: $template"
+          done
+
+      - name: Upload child templates to S3
+        run: |
+          aws cloudformation package \
+            --template-file templates/root.yaml \
+            --s3-bucket ${{ vars.TEMPLATES_BUCKET }} \
+            --s3-prefix ${{ github.sha }} \
+            --output-template-file packaged-root.yaml
+
+      - name: Deploy the root stack
+        run: |
+          aws cloudformation deploy \
+            --stack-name $STACK_NAME \
+            --template-file packaged-root.yaml \
+            --role-arn ${{ vars.CFN_DEPLOY_ROLE_ARN }} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --parameter-overrides \
+              Environment=dev \
+              ConnectionArn=${{ vars.CONNECTION_ARN }} \
+              MinTasks=1 \
+              MaxTasks=6 \
+              CpuTarget=50 \
+            --tags Project=onward "Owner=Effie Njoki" Environment=dev \
+            --no-fail-on-empty-changeset
+
+      - name: Show the outputs
+        run: |
+          aws cloudformation describe-stacks --stack-name $STACK_NAME \
+            --query "Stacks[0].Outputs" --output table
